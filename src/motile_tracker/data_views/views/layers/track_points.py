@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from typing import TYPE_CHECKING
+from collections import defaultdict
 
 import napari
 import numpy as np
@@ -256,11 +257,11 @@ class TrackPoints(napari.layers.Points):
                 self.tracks_viewer.selected_nodes.add(node_id, True)
 
     def get_symbols(self, tracks: Tracks, symbolmap: dict[NodeType, str]) -> list[str]:
-        statemap = {
+        statemap = defaultdict(lambda: NodeType.SPLIT)
+        statemap.update({
             0: NodeType.END,
             1: NodeType.CONTINUE,
-            2: NodeType.SPLIT,
-        }
+        })
         symbols = [symbolmap[statemap[degree]] for _, degree in tracks.graph.out_degree]
         return symbols
 
