@@ -16,6 +16,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 from superqt import QCollapsible
+import networkx as nx
 
 from motile_tracker.data_views.views.tree_view.flip_axes_widget import FlipTreeWidget
 from motile_tracker.data_views.views.tree_view.navigation_widget import NavigationWidget
@@ -117,6 +118,7 @@ class TreePlot(pg.PlotWidget):
         self.addItem(self.g)
         self.set_view("vertical", feature="tree")
         self.getViewBox().selected_rect.connect(self.select_points_in_rect)
+        self.graph = None
 
     def select_points_in_rect(self, rect: QtCore.QRectF):
         """Select all nodes in given rectangle"""
@@ -151,7 +153,7 @@ class TreePlot(pg.PlotWidget):
             feature (str): The feature to be plotted ('tree' or 'area')
             selected_nodes (list[Any]): The currently selected nodes to be highlighted
         """
-        self.set_data(track_df, feature)
+        self.set_data(track_df, feature, self.graph)
         self._update_viewed_data(view_direction)  # this can be expensive
         self.set_view(view_direction, feature, reset_view, allow_flip)
         self.set_selection(selected_nodes, feature)
@@ -226,7 +228,7 @@ class TreePlot(pg.PlotWidget):
         self.node_clicked.emit(node_id, append)
         self.setFocus()
 
-    def set_data(self, track_df: pd.DataFrame, feature: str) -> None:
+    def set_data(self, track_df: pd.DataFrame, feature: str, graph: nx.DiGraph) -> None:
         """Updates the stored pyqtgraph content based on the given dataframe.
         Does not render the new information (need to call _update_viewed_data).
 
@@ -236,6 +238,7 @@ class TreePlot(pg.PlotWidget):
             feature (str): The feature to be plotted. Can either be 'tree', or 'area'.
         """
         self.track_df = track_df
+        self.graph = graph
         self._create_pyqtgraph_content(track_df, feature)
 
     def _update_viewed_data(self, view_direction: str):
@@ -296,12 +299,20 @@ class TreePlot(pg.PlotWidget):
                 * len(self.symbols)
             )
 
-            valid_edges_df = track_df[track_df["parent_id"] != 0]
+            # valid_edges_df = track_df[track_df["parent_id"] != 0]
+
+            if self.graph is not None:
+                edges_df = pd.DataFrame(list(self.graph.edges()),  columns=["parent_id", "node_id"])
+                # print(f"Length of edges_df: {len(edges_df)}")
+            else:
+                edges_df = pd.DataFrame([],  columns=["parent_id", "node_id"])
+
             node_ids_to_index = {
                 node_id: index for index, node_id in enumerate(self.node_ids)
             }
-            edges_df = valid_edges_df[["node_id", "parent_id"]]
-            self.pen = valid_edges_df["color"].to_numpy()
+            # edges_df = valid_edges_df[["node_id", "parent_id"]]
+            # self.pen = valid_edges_df["color"].to_numpy()
+            self.pen = pg.mkPen(color=[150, 150, 150, 255], width=1)
             edges_df_mapped = edges_df.map(lambda _id: node_ids_to_index[_id])
             self.adj = edges_df_mapped.to_numpy()
 
@@ -610,6 +621,7 @@ class TreeWidget(QWidget):
         """
 
         if self.tracks_viewer.tracks is None:
+            print("No tracks to display in Tree View, self.graph set to None")
             self.track_df = pd.DataFrame()
             self.graph = None
         else:
@@ -623,7 +635,8 @@ class TreeWidget(QWidget):
                     self.tracks_viewer.colormap,
                     self.track_df,
                 )
-            self.graph = self.tracks_viewer.tracks.graph
+            print("Updating Tree View graph, self.tree_widget.graph set to tracks graph")
+            self.tree_widget.graph = self.tracks_viewer.tracks.graph
 
         # check whether we have area measurements and therefore should activate the area
         # button

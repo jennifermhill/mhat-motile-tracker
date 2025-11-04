@@ -8,6 +8,52 @@ from funtracks.data_model import NodeType, Tracks
 
 from motile_tracker.data_views.graph_attributes import NodeAttr
 
+def get_sorted_track_ids(
+    graph: nx.DiGraph,
+    tracklet_id_key: str="track_id"
+) -> list[Any]:
+    """
+    Extract the lineage tree plot order of the tracklet_ids on the graph, ensuring that
+    each tracklet_id is placed in between its daughter tracklet_ids and adjacent to its
+    parent track id.
+
+    Args:
+        graph (nx.DiGraph): graph with a tracklet_id attribute on it.
+        tracklet_id_key (str): tracklet_id key on the graph.
+
+    Returns:
+        list[Any] of ordered tracklet_ids.
+    """
+
+    # Create tracklet_id to parent_tracklet_id mapping (0 if tracklet has no parent)
+    tracklet_to_parent_tracklet = {}
+    for node, data in graph.nodes(data=True):
+        tracklet = data[tracklet_id_key]
+        if tracklet in tracklet_to_parent_tracklet:
+            continue
+        predecessor = next(graph.predecessors(node), None)
+        if predecessor is not None:
+            parent_tracklet_id = graph.nodes[predecessor][tracklet_id_key]
+        else:
+            parent_tracklet_id = 0
+        tracklet_to_parent_tracklet[tracklet] = parent_tracklet_id
+
+    # Final sorted order of roots
+    roots = sorted([tid for tid, ptid in tracklet_to_parent_tracklet.items() if ptid == 0])
+    x_axis_order = list(roots)
+
+    # Find the children of each of the starting points, and work down the tree.
+    while len(roots) > 0:
+        children_list = []
+        for tracklet_id in roots:
+            children = [tid for tid, ptid in tracklet_to_parent_tracklet.items() 
+                        if ptid == tracklet_id]
+            for i, child in enumerate(children):
+                [children_list.append(child)]
+                x_axis_order.insert(x_axis_order.index(tracklet_id) + i, child)
+        roots = children_list
+
+    return x_axis_order
 
 def extract_sorted_tracks(
     tracks: Tracks,
@@ -33,6 +79,9 @@ def extract_sorted_tracks(
         'color', 'x', 'y', ('z'), 'index', 'parent_id', 'parent_track_id',
         'state', 'symbol', and 'x_axis_pos'
     """
+
+    print("Entering extract_sorted_tracks")
+
     if tracks is None or tracks.graph is None:
         return None
 
@@ -41,18 +90,28 @@ def extract_sorted_tracks(
     track_list = []
     parent_mapping = []
 
-    # Identify parent nodes (nodes with more than one child)
+    # Identify merge/division nodes (nodes with more than one child or parent)
     parent_nodes = [n for (n, d) in solution_nx_graph.out_degree() if d > 1]
+    child_nodes = [n for (n, d) in solution_nx_graph.in_degree() if d > 1]
+    print(f"Found {len(parent_nodes)} parent nodes and {len(child_nodes)} child nodes.")
     end_nodes = [n for (n, d) in solution_nx_graph.out_degree() if d == 0]
 
-    # Make a copy of the graph and remove outgoing edges from parent nodes to isolate
-    # tracks
+    # Make a copy of the graph and remove outgoing edges from parent nodes and
+    # incoming edges from child nodes to isolate tracks
     soln_copy = solution_nx_graph.copy()
     for parent_node in parent_nodes:
         out_edges = solution_nx_graph.out_edges(parent_node)
         soln_copy.remove_edges_from(out_edges)
+    print("Removing incoming edges from child nodes...")
+    for child_node in child_nodes:
+        in_edges = solution_nx_graph.in_edges(child_node)
+        for in_edge in in_edges:
+            if in_edge in soln_copy.edges:
+                soln_copy.remove_edge(*in_edge)
+    print("Finished removing incoming edges from child nodes.")
 
     # Process each weakly connected component as a separate track
+    print("Processing weakly connected components...")
     for node_set in nx.weakly_connected_components(soln_copy):
         # Sort nodes in each weakly connected component by their time attribute to
         # ensure correct order
@@ -121,8 +180,9 @@ def extract_sorted_tracks(
         parent_mapping.append(
             {"track_id": track_id, "parent_track_id": parent_track_id, "node_id": node}
         )
-
-    x_axis_order = sort_track_ids(parent_mapping, prev_df)
+    print("Finished processing weakly connected components.")
+    x_axis_order = get_sorted_track_ids(solution_nx_graph)
+    # x_axis_order = sort_track_ids(parent_mapping, prev_df)
 
     for node in track_list:
         node["x_axis_pos"] = x_axis_order.index(node["track_id"])
@@ -131,6 +191,8 @@ def extract_sorted_tracks(
     if "area" in df.columns:
         df["area"] = df["area"].fillna(0)
 
+    print("Exiting extract_sorted_tracks")
+    
     return df
 
 
@@ -144,96 +206,99 @@ def find_root(track_id: int, parent_map: dict) -> int:
     return current_track
 
 
-def sort_track_ids(
-    track_list: list[dict], prev_df: pd.DataFrame | None = None
-) -> list[dict]:
-    """
-    Sort track IDs such to maintain left-first order in the tree formed by parent-child
-    relationships. Used to determine the x-axis order of the tree plot.
+# def sort_track_ids(
+#     track_list: list[dict], prev_df: pd.DataFrame | None = None
+# ) -> list[dict]:
+#     """
+#     Sort track IDs such to maintain left-first order in the tree formed by parent-child
+#     relationships. Used to determine the x-axis order of the tree plot.
 
-    Args:
-        track_list (list): List of dictionaries with 'track_id' and 'parent_track_id'.
-        prev_df (pd.DataFrame, Optional). Dataframe that holds the previous track_df,
-            including the order of the tracks.
+#     Args:
+#         track_list (list): List of dictionaries with 'track_id' and 'parent_track_id'.
+#         prev_df (pd.DataFrame, Optional). Dataframe that holds the previous track_df,
+#             including the order of the tracks.
 
-    Returns:
-        list: Ordered list of track IDs for the x-axis.
-    """
+#     Returns:
+#         list: Ordered list of track IDs for the x-axis.
+#     """
+#     print("Entering sort_track_ids")
+#     roots = [node["track_id"] for node in track_list if node["parent_track_id"] == 0]
 
-    roots = [node["track_id"] for node in track_list if node["parent_track_id"] == 0]
+#     if prev_df is not None and not prev_df.empty:
+#         prev_roots = (
+#             prev_df.loc[prev_df["parent_track_id"] == 0, "track_id"].unique().tolist()
+#         )
+#         new_roots = set(roots) - set(
+#             prev_roots
+#         )  # Detect new roots (those in the current list but not in the previous list)
 
-    if prev_df is not None and not prev_df.empty:
-        prev_roots = (
-            prev_df.loc[prev_df["parent_track_id"] == 0, "track_id"].unique().tolist()
-        )
-        new_roots = set(roots) - set(
-            prev_roots
-        )  # Detect new roots (those in the current list but not in the previous list)
+#         # Create mappings for fast lookup
+#         track_id_map = {
+#             n["track_id"]: n["node_id"] for n in track_list
+#         }  # track_id -> node_id
+#         parent_map = {
+#             n["track_id"]: n["parent_track_id"] for n in track_list
+#         }  # track_id -> parent_track_id
+#         position_map = prev_df.set_index("node_id")[
+#             "x_axis_pos"
+#         ].to_dict()  # node_id -> x_axis_pos
 
-        # Create mappings for fast lookup
-        track_id_map = {
-            n["track_id"]: n["node_id"] for n in track_list
-        }  # track_id -> node_id
-        parent_map = {
-            n["track_id"]: n["parent_track_id"] for n in track_list
-        }  # track_id -> parent_track_id
-        position_map = prev_df.set_index("node_id")[
-            "x_axis_pos"
-        ].to_dict()  # node_id -> x_axis_pos
+#         # Iterate over each new root and place it based on previous positions (to the
+#         # right of its previous left neighbor)
+#         print("Iterating through new roots for sorting...")
+#         for new_root in new_roots:
+#             new_node_id = track_id_map.get(new_root)
+#             # if node_id of new root does not exist in track_id_map, it is a completely
+#             # new node and we can skip the rest of the code below and add the new track
+#             # at the end.
+#             if new_node_id and new_node_id in position_map:
+#                 # Get the previous position of the new root
+#                 prev_pos = position_map[new_node_id]
+#                 # Find which track was on the left of this new root based on previous
+#                 # x_axis_pos
+#                 left_track = prev_df.loc[
+#                     prev_df["x_axis_pos"] == prev_pos - 1, "track_id"
+#                 ].unique()
+#                 if len(left_track) > 0:
+#                     left_track_id = left_track[0]  # Get the track ID of the left track
+#                     # Check if the left_track is a root or further downstream
+#                     if left_track_id not in roots:
+#                         # If the left_track is not a root, find its root
+#                         left_root = find_root(left_track_id, parent_map)
+#                     else:
+#                         # If left_track is already a root, use it as-is
+#                         left_root = left_track_id
+#                     # Find the index of the root where we need to insert the new root
+#                     left_ind = roots.index(left_root) if left_root in roots else -1
+#                 else:
+#                     # If no left track is found, insert the new root at the beginning
+#                     left_ind = -1
 
-        # Iterate over each new root and place it based on previous positions (to the
-        # right of its previous left neighbor)
-        for new_root in new_roots:
-            new_node_id = track_id_map.get(new_root)
-            # if node_id of new root does not exist in track_id_map, it is a completely
-            # new node and we can skip the rest of the code below and add the new track
-            # at the end.
-            if new_node_id and new_node_id in position_map:
-                # Get the previous position of the new root
-                prev_pos = position_map[new_node_id]
-                # Find which track was on the left of this new root based on previous
-                # x_axis_pos
-                left_track = prev_df.loc[
-                    prev_df["x_axis_pos"] == prev_pos - 1, "track_id"
-                ].unique()
-                if len(left_track) > 0:
-                    left_track_id = left_track[0]  # Get the track ID of the left track
-                    # Check if the left_track is a root or further downstream
-                    if left_track_id not in roots:
-                        # If the left_track is not a root, find its root
-                        left_root = find_root(left_track_id, parent_map)
-                    else:
-                        # If left_track is already a root, use it as-is
-                        left_root = left_track_id
-                    # Find the index of the root where we need to insert the new root
-                    left_ind = roots.index(left_root) if left_root in roots else -1
-                else:
-                    # If no left track is found, insert the new root at the beginning
-                    left_ind = -1
+#                 # Remove the new root from its current position and reinsert it after
+#                 # the left root
+#                 roots.remove(new_root)
+#                 roots.insert(left_ind + 1, new_root)
+#         print("Finished sorting new roots.")
+#     # Final sorted order of roots
+#     x_axis_order = list(roots)
 
-                # Remove the new root from its current position and reinsert it after
-                # the left root
-                roots.remove(new_root)
-                roots.insert(left_ind + 1, new_root)
+#     print("Finding children for each root...")
+#     # Find the children of each of the starting points, and work down the tree.
+#     while len(roots) > 0:
+#         children_list = []
+#         for track_id in roots:
+#             children = [
+#                 node["track_id"]
+#                 for node in track_list
+#                 if node["parent_track_id"] == track_id
+#             ]
+#             for i, child in enumerate(children):
+#                 [children_list.append(child)]
+#                 x_axis_order.insert(x_axis_order.index(track_id) + i, child)
+#         roots = children_list
+#     print("Finished finding children for each root. Exiting sort_track_ids")
 
-    # Final sorted order of roots
-    x_axis_order = list(roots)
-
-    # Find the children of each of the starting points, and work down the tree.
-    while len(roots) > 0:
-        children_list = []
-        for track_id in roots:
-            children = [
-                node["track_id"]
-                for node in track_list
-                if node["parent_track_id"] == track_id
-            ]
-            for i, child in enumerate(children):
-                [children_list.append(child)]
-                x_axis_order.insert(x_axis_order.index(track_id) + i, child)
-        roots = children_list
-
-    return x_axis_order
+#     return x_axis_order
 
 
 def extract_lineage_tree(graph: nx.DiGraph, node_id: str) -> list[str]:
