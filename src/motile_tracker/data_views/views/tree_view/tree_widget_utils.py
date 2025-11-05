@@ -80,8 +80,6 @@ def extract_sorted_tracks(
         'state', 'symbol', and 'x_axis_pos'
     """
 
-    print("Entering extract_sorted_tracks")
-
     if tracks is None or tracks.graph is None:
         return None
 
@@ -93,7 +91,6 @@ def extract_sorted_tracks(
     # Identify merge/division nodes (nodes with more than one child or parent)
     parent_nodes = [n for (n, d) in solution_nx_graph.out_degree() if d > 1]
     child_nodes = [n for (n, d) in solution_nx_graph.in_degree() if d > 1]
-    print(f"Found {len(parent_nodes)} parent nodes and {len(child_nodes)} child nodes.")
     end_nodes = [n for (n, d) in solution_nx_graph.out_degree() if d == 0]
 
     # Make a copy of the graph and remove outgoing edges from parent nodes and
@@ -102,16 +99,13 @@ def extract_sorted_tracks(
     for parent_node in parent_nodes:
         out_edges = solution_nx_graph.out_edges(parent_node)
         soln_copy.remove_edges_from(out_edges)
-    print("Removing incoming edges from child nodes...")
     for child_node in child_nodes:
         in_edges = solution_nx_graph.in_edges(child_node)
         for in_edge in in_edges:
             if in_edge in soln_copy.edges:
                 soln_copy.remove_edge(*in_edge)
-    print("Finished removing incoming edges from child nodes.")
 
     # Process each weakly connected component as a separate track
-    print("Processing weakly connected components...")
     for node_set in nx.weakly_connected_components(soln_copy):
         # Sort nodes in each weakly connected component by their time attribute to
         # ensure correct order
@@ -180,7 +174,6 @@ def extract_sorted_tracks(
         parent_mapping.append(
             {"track_id": track_id, "parent_track_id": parent_track_id, "node_id": node}
         )
-    print("Finished processing weakly connected components.")
     x_axis_order = get_sorted_track_ids(solution_nx_graph)
     # x_axis_order = sort_track_ids(parent_mapping, prev_df)
 
@@ -190,8 +183,6 @@ def extract_sorted_tracks(
     df = pd.DataFrame(track_list)
     if "area" in df.columns:
         df["area"] = df["area"].fillna(0)
-
-    print("Exiting extract_sorted_tracks")
     
     return df
 
@@ -221,7 +212,6 @@ def find_root(track_id: int, parent_map: dict) -> int:
 #     Returns:
 #         list: Ordered list of track IDs for the x-axis.
 #     """
-#     print("Entering sort_track_ids")
 #     roots = [node["track_id"] for node in track_list if node["parent_track_id"] == 0]
 
 #     if prev_df is not None and not prev_df.empty:
@@ -245,7 +235,6 @@ def find_root(track_id: int, parent_map: dict) -> int:
 
 #         # Iterate over each new root and place it based on previous positions (to the
 #         # right of its previous left neighbor)
-#         print("Iterating through new roots for sorting...")
 #         for new_root in new_roots:
 #             new_node_id = track_id_map.get(new_root)
 #             # if node_id of new root does not exist in track_id_map, it is a completely
@@ -278,11 +267,9 @@ def find_root(track_id: int, parent_map: dict) -> int:
 #                 # the left root
 #                 roots.remove(new_root)
 #                 roots.insert(left_ind + 1, new_root)
-#         print("Finished sorting new roots.")
 #     # Final sorted order of roots
 #     x_axis_order = list(roots)
 
-#     print("Finding children for each root...")
 #     # Find the children of each of the starting points, and work down the tree.
 #     while len(roots) > 0:
 #         children_list = []
@@ -296,7 +283,6 @@ def find_root(track_id: int, parent_map: dict) -> int:
 #                 [children_list.append(child)]
 #                 x_axis_order.insert(x_axis_order.index(track_id) + i, child)
 #         roots = children_list
-#     print("Finished finding children for each root. Exiting sort_track_ids")
 
 #     return x_axis_order
 

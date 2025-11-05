@@ -303,7 +303,6 @@ class TreePlot(pg.PlotWidget):
 
             if self.graph is not None:
                 edges_df = pd.DataFrame(list(self.graph.edges()),  columns=["parent_id", "node_id"])
-                # print(f"Length of edges_df: {len(edges_df)}")
             else:
                 edges_df = pd.DataFrame([],  columns=["parent_id", "node_id"])
 
@@ -621,7 +620,6 @@ class TreeWidget(QWidget):
         """
 
         if self.tracks_viewer.tracks is None:
-            print("No tracks to display in Tree View, self.graph set to None")
             self.track_df = pd.DataFrame()
             self.graph = None
         else:
@@ -635,7 +633,6 @@ class TreeWidget(QWidget):
                     self.tracks_viewer.colormap,
                     self.track_df,
                 )
-            print("Updating Tree View graph, self.tree_widget.graph set to tracks graph")
             self.tree_widget.graph = self.tracks_viewer.tracks.graph
 
         # check whether we have area measurements and therefore should activate the area
